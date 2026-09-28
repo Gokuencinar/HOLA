@@ -16,6 +16,7 @@ on:
       - 'patch_bwrh_040.py'
       - 'patch_bwrh_041.py'
       - 'patch_bwrh_042.py'
+      - 'patch_bwrh_044_permissions.py'
       - 'patch_bwrh_043_multijailbreak.py'
       - 'credits_avatar.b64'
   workflow_dispatch:
@@ -25,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Reconstruct 0.3.12 source
+      - name: Reconstruct 0.3.13 source
         shell: bash
         run: |
           set -euo pipefail
@@ -92,16 +93,17 @@ jobs:
           python3 patch_bwrh_040.py
           python3 patch_bwrh_041.py
           python3 patch_bwrh_042.py
+          python3 patch_bwrh_044_permissions.py
 
-          test "$(grep '^Version:' BetterWiFi-RH/control)" = "Version: 0.3.12"
+          test "$(grep '^Version:' BetterWiFi-RH/control)" = "Version: 0.3.13"
           grep -q 'constant:8.0' BetterWiFi-RH/prefs/BWRHRootListController.m
           grep -q 'insideAdvancedFilters' BetterWiFi-RH/prefs/BWRHRootListController.m
 
-          tar -czf BetterWiFi-RH-0.3.12-source.tar.gz BetterWiFi-RH
+          tar -czf BetterWiFi-RH-0.3.13-source.tar.gz BetterWiFi-RH
       - uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.12-source-linux
-          path: BetterWiFi-RH-0.3.12-source.tar.gz
+          name: BetterWiFi-RH-0.3.13-source-linux
+          path: BetterWiFi-RH-0.3.13-source.tar.gz
 
   rootless:
     name: Dopamine rootless iOS 15-18
@@ -111,7 +113,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.12-source-linux
+          name: BetterWiFi-RH-0.3.13-source-linux
       - name: Install Theos for Linux
         shell: bash
         run: |
@@ -124,7 +126,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tar -xzf BetterWiFi-RH-0.3.12-source.tar.gz
+          tar -xzf BetterWiFi-RH-0.3.13-source.tar.gz
           python3 patch_bwrh_043_multijailbreak.py
           python3 - <<'PY'
           from pathlib import Path
@@ -135,19 +137,20 @@ jobs:
           p.write_text(s)
           PY
           cd BetterWiFi-RH
+          umask 022
           make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless TARGET=iphone:clang:latest:15.0 ARCHS="arm64 arm64e"
           deb="$(find packages -name '*.deb' -type f | head -1)"
           test "$(dpkg-deb -f "$deb" Package)" = "com.betterwifirh.tweak"
-          test "$(dpkg-deb -f "$deb" Version)" = "0.3.12"
+          test "$(dpkg-deb -f "$deb" Version)" = "0.3.13"
           test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm64"
           mkdir -p ../out
-          cp "$deb" ../out/com.betterwifirh.tweak_0.3.12_iphoneos-arm64.deb
+          cp "$deb" ../out/com.betterwifirh.tweak_0.3.13_iphoneos-arm64.deb
           dpkg-deb -f "$deb" Package Version Architecture Depends
           sha256sum ../out/*.deb
       - uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-0.3.12-Dopamine-Rootless-iOS15-18
-          path: out/com.betterwifirh.tweak_0.3.12_iphoneos-arm64.deb
+          name: BetterWiFi-0.3.13-Dopamine-Rootless-iOS15-18
+          path: out/com.betterwifirh.tweak_0.3.13_iphoneos-arm64.deb
 
   rootful:
     name: Rootful iOS 15-17
@@ -157,7 +160,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.12-source-linux
+          name: BetterWiFi-RH-0.3.13-source-linux
       - name: Install Theos for Linux
         shell: bash
         run: |
@@ -170,7 +173,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tar -xzf BetterWiFi-RH-0.3.12-source.tar.gz
+          tar -xzf BetterWiFi-RH-0.3.13-source.tar.gz
           python3 patch_bwrh_043_multijailbreak.py
           python3 - <<'PY'
           from pathlib import Path
@@ -181,16 +184,17 @@ jobs:
           p.write_text(s)
           PY
           cd BetterWiFi-RH
+          umask 022
           make clean package FINALPACKAGE=1 TARGET=iphone:clang:latest:15.0 ARCHS="arm64 arm64e"
           deb="$(find packages -name '*.deb' -type f | head -1)"
           test "$(dpkg-deb -f "$deb" Package)" = "com.betterwifirh.tweak"
-          test "$(dpkg-deb -f "$deb" Version)" = "0.3.12"
+          test "$(dpkg-deb -f "$deb" Version)" = "0.3.13"
           test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm"
           mkdir -p ../out
-          cp "$deb" ../out/com.betterwifirh.tweak_0.3.12_iphoneos-arm.deb
+          cp "$deb" ../out/com.betterwifirh.tweak_0.3.13_iphoneos-arm.deb
           dpkg-deb -f "$deb" Package Version Architecture Depends
           sha256sum ../out/*.deb
       - uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-0.3.12-Rootful-iOS15-17
-          path: out/com.betterwifirh.tweak_0.3.12_iphoneos-arm.deb
+          name: BetterWiFi-0.3.13-Rootful-iOS15-17
+          path: out/com.betterwifirh.tweak_0.3.13_iphoneos-arm.deb

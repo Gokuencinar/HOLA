@@ -16,6 +16,7 @@ on:
       - 'patch_bwrh_040.py'
       - 'patch_bwrh_041.py'
       - 'patch_bwrh_042.py'
+      - 'patch_bwrh_044_permissions.py'
       - 'patch_bwrh_043_multijailbreak.py'
       - 'credits_avatar.b64'
   workflow_dispatch:
@@ -27,7 +28,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Restore BetterWiFi RH 0.3.12 compatibility source
+      - name: Restore BetterWiFi RH 0.3.13 compatibility source
         shell: bash
         run: |
           set -euo pipefail
@@ -169,8 +170,9 @@ jobs:
 
           cd ..
           python3 patch_bwrh_042.py
+          python3 patch_bwrh_044_permissions.py
           cd BetterWiFi-RH
-          test "$(grep '^Version:' control)" = "Version: 0.3.12"
+          test "$(grep '^Version:' control)" = "Version: 0.3.13"
           grep -q 'constant:8.0' prefs/BWRHRootListController.m
           grep -q 'insideAdvancedFilters' prefs/BWRHRootListController.m
           grep -q 'specifier.name = @"Band filter"' prefs/BWRHRootListController.m
@@ -179,7 +181,7 @@ jobs:
           grep -q 'specifier.name = @"Sort networks"' prefs/BWRHRootListController.m
           plutil -lint prefs/Resources/Root.plist
           plutil -lint prefs/Resources/Info.plist
-          echo "BetterWiFi RH 0.3.12 fixes source verified."
+          echo "BetterWiFi RH 0.3.13 fixes source verified."
 
           cd ..
           python3 patch_bwrh_043_multijailbreak.py
@@ -239,24 +241,26 @@ jobs:
         run: |
           set -euo pipefail
           cd BetterWiFi-rootless
+          umask 022
           make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless PACKAGE_ARCH=iphoneos-arm64 TARGET=iphone:clang:latest:15.0 ARCHS="arm64 arm64e"
           deb="$(find packages -name '*.deb' -type f | head -1)"
           test -n "$deb"
           echo "Rootless package: $deb"
           mkdir -p ../artifacts
-          cp "$deb" ../artifacts/BetterWiFi-RH_0.3.12_Dopamine_Rootless_iOS15-18.deb
+          cp "$deb" ../artifacts/BetterWiFi-RH_0.3.13_Dopamine_Rootless_iOS15-18.deb
 
       - name: Build rootful package
         shell: bash
         run: |
           set -euo pipefail
           cd BetterWiFi-rootful
+          umask 022
           make clean package FINALPACKAGE=1 PACKAGE_ARCH=iphoneos-arm TARGET=iphone:clang:latest:15.0 ARCHS="arm64 arm64e"
           deb="$(find packages -name '*.deb' -type f | head -1)"
           test -n "$deb"
           echo "Rootful package: $deb"
           mkdir -p ../artifacts
-          cp "$deb" ../artifacts/BetterWiFi-RH_0.3.12_Rootful_iOS15-17.deb
+          cp "$deb" ../artifacts/BetterWiFi-RH_0.3.13_Rootful_iOS15-17.deb
 
       - name: Validate compatibility packages
         shell: bash
@@ -282,7 +286,7 @@ jobs:
               tar -xf "$data_archive" -C data
 
               grep -Fqx 'Package: com.betterwifirh.tweak' control/control
-              grep -Fqx 'Version: 0.3.12' control/control
+              grep -Fqx 'Version: 0.3.13' control/control
               grep -Fqx "Architecture: $expected_arch" control/control
               grep -Fq 'firmware (>= 15.0)' control/control
               grep -Fq "firmware (<< $expected_upper)" control/control
@@ -291,6 +295,8 @@ jobs:
               test -f "data/$expected_prefix/Library/MobileSubstrate/DynamicLibraries/BetterWiFiRH.dylib"
               test -f "data/$expected_prefix/Library/MobileSubstrate/DynamicLibraries/BetterWiFiRH.plist"
               test -d "data/$expected_prefix/Library/PreferenceBundles/BetterWiFiRHPrefs.bundle"
+              test "$(stat -c '%a' "data/$expected_prefix/Library/MobileSubstrate/DynamicLibraries/BetterWiFiRH.dylib")" = "755"
+              test "$(stat -c '%a' "data/$expected_prefix/Library/PreferenceBundles/BetterWiFiRHPrefs.bundle/BetterWiFiRHPrefs")" = "755"
 
               lipo -info "data/$expected_prefix/Library/MobileSubstrate/DynamicLibraries/BetterWiFiRH.dylib"
               lipo -info "data/$expected_prefix/Library/PreferenceBundles/BetterWiFiRHPrefs.bundle/BetterWiFiRHPrefs"
@@ -299,8 +305,8 @@ jobs:
             rm -rf "$tmp"
           }
 
-          validate_deb artifacts/BetterWiFi-RH_0.3.12_Dopamine_Rootless_iOS15-18.deb iphoneos-arm64 19.0 var/jb
-          validate_deb artifacts/BetterWiFi-RH_0.3.12_Rootful_iOS15-17.deb iphoneos-arm 18.0 .
+          validate_deb artifacts/BetterWiFi-RH_0.3.13_Dopamine_Rootless_iOS15-18.deb iphoneos-arm64 19.0 var/jb
+          validate_deb artifacts/BetterWiFi-RH_0.3.13_Rootful_iOS15-17.deb iphoneos-arm 18.0 .
 
           echo '--- SHA256 ---'
           shasum -a 256 artifacts/*.deb
@@ -308,13 +314,13 @@ jobs:
       - name: Upload Dopamine rootless deb
         uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.12-Dopamine-rootless-iOS15-18
-          path: artifacts/BetterWiFi-RH_0.3.12_Dopamine_Rootless_iOS15-18.deb
+          name: BetterWiFi-RH-0.3.13-Dopamine-rootless-iOS15-18
+          path: artifacts/BetterWiFi-RH_0.3.13_Dopamine_Rootless_iOS15-18.deb
           if-no-files-found: error
 
       - name: Upload rootful deb
         uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.12-rootful-iOS15-17
-          path: artifacts/BetterWiFi-RH_0.3.12_Rootful_iOS15-17.deb
+          name: BetterWiFi-RH-0.3.13-rootful-iOS15-17
+          path: artifacts/BetterWiFi-RH_0.3.13_Rootful_iOS15-17.deb
           if-no-files-found: error

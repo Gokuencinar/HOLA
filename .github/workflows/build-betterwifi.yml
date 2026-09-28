@@ -16,6 +16,7 @@ on:
       - 'patch_bwrh_040.py'
       - 'patch_bwrh_041.py'
       - 'patch_bwrh_042.py'
+      - 'patch_bwrh_044_permissions.py'
       - 'credits_avatar.b64'
   workflow_dispatch:
 
@@ -26,7 +27,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Restore BetterWiFi RH 0.3.12
+      - name: Restore BetterWiFi RH 0.3.13
         shell: bash
         run: |
           set -euo pipefail
@@ -168,8 +169,9 @@ jobs:
 
           cd ..
           python3 patch_bwrh_042.py
+          python3 patch_bwrh_044_permissions.py
           cd BetterWiFi-RH
-          test "$(grep '^Version:' control)" = "Version: 0.3.12"
+          test "$(grep '^Version:' control)" = "Version: 0.3.13"
           grep -q 'constant:8.0' prefs/BWRHRootListController.m
           grep -q 'insideAdvancedFilters' prefs/BWRHRootListController.m
           grep -q 'specifier.name = @"Band filter"' prefs/BWRHRootListController.m
@@ -178,18 +180,18 @@ jobs:
           grep -q 'specifier.name = @"Sort networks"' prefs/BWRHRootListController.m
           plutil -lint prefs/Resources/Root.plist
           plutil -lint prefs/Resources/Info.plist
-          echo "BetterWiFi RH 0.3.12 fixes source verified."
+          echo "BetterWiFi RH 0.3.13 fixes source verified."
 
-      - name: Archive prepared 0.3.12 source
+      - name: Archive prepared 0.3.13 source
         shell: bash
         run: |
-          tar -czf BetterWiFi-RH-0.3.12-source.tar.gz BetterWiFi-RH
+          tar -czf BetterWiFi-RH-0.3.13-source.tar.gz BetterWiFi-RH
 
       - name: Upload prepared source
         uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.12-source
-          path: BetterWiFi-RH-0.3.12-source.tar.gz
+          name: BetterWiFi-RH-0.3.13-source
+          path: BetterWiFi-RH-0.3.13-source.tar.gz
           if-no-files-found: error
 
       - name: Setup RootHide Theos
@@ -204,13 +206,14 @@ jobs:
         shell: bash
         run: |
           cd BetterWiFi-RH
+          umask 022
           make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
           ls -lh packages/*.deb
 
       - name: Upload deb
         uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.12-deb
+          name: BetterWiFi-RH-0.3.13-deb
           path: BetterWiFi-RH/packages/*.deb
           if-no-files-found: error
 
@@ -223,13 +226,13 @@ jobs:
       - name: Download prepared source
         uses: actions/download-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.12-source
+          name: BetterWiFi-RH-0.3.13-source
 
       - name: Extract source and adapt compatibility
         shell: bash
         run: |
           set -euo pipefail
-          tar -xzf BetterWiFi-RH-0.3.12-source.tar.gz
+          tar -xzf BetterWiFi-RH-0.3.13-source.tar.gz
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -248,7 +251,7 @@ jobs:
               raise SystemExit(f'expected one iOS16 ctor gate, replaced {n}')
           tweak.write_text(s2)
           PY
-          grep -q '^Version: 0.3.12$' BetterWiFi-RH/control
+          grep -q '^Version: 0.3.13$' BetterWiFi-RH/control
           grep -q '^Depends: firmware (>= 15.0), firmware (<< 19.0), preferenceloader$' BetterWiFi-RH/control
           grep -q '@available(iOS 15.0, \*)' BetterWiFi-RH/Tweak.xm
 
@@ -265,22 +268,23 @@ jobs:
         run: |
           set -euo pipefail
           cd BetterWiFi-RH
+          umask 022
           make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless TARGET=iphone:clang:latest:15.0 ARCHS="arm64 arm64e"
           deb="$(find packages -name '*.deb' -type f | head -1)"
           test -n "$deb"
           test "$(dpkg-deb -f "$deb" Package)" = "com.betterwifirh.tweak"
-          test "$(dpkg-deb -f "$deb" Version)" = "0.3.12"
+          test "$(dpkg-deb -f "$deb" Version)" = "0.3.13"
           test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm64"
           mkdir -p ../out-rootless
-          cp "$deb" ../out-rootless/BetterWiFi_0.3.12_Dopamine_Rootless_iOS15-18.deb
+          cp "$deb" ../out-rootless/BetterWiFi_0.3.13_Dopamine_Rootless_iOS15-18.deb
           dpkg-deb -f "$deb" Package Version Architecture Depends
           file .theos/obj/debug/BetterWiFiRH.dylib 2>/dev/null || true
 
       - name: Upload Dopamine rootless deb
         uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-0.3.12-Dopamine-Rootless-iOS15-18
-          path: out-rootless/BetterWiFi_0.3.12_Dopamine_Rootless_iOS15-18.deb
+          name: BetterWiFi-0.3.13-Dopamine-Rootless-iOS15-18
+          path: out-rootless/BetterWiFi_0.3.13_Dopamine_Rootless_iOS15-18.deb
           if-no-files-found: error
 
   build-rootful:
@@ -291,13 +295,13 @@ jobs:
       - name: Download prepared source
         uses: actions/download-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.12-source
+          name: BetterWiFi-RH-0.3.13-source
 
       - name: Extract source and adapt compatibility
         shell: bash
         run: |
           set -euo pipefail
-          tar -xzf BetterWiFi-RH-0.3.12-source.tar.gz
+          tar -xzf BetterWiFi-RH-0.3.13-source.tar.gz
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -316,7 +320,7 @@ jobs:
               raise SystemExit(f'expected one iOS16 ctor gate, replaced {n}')
           tweak.write_text(s2)
           PY
-          grep -q '^Version: 0.3.12$' BetterWiFi-RH/control
+          grep -q '^Version: 0.3.13$' BetterWiFi-RH/control
           grep -q '^Depends: firmware (>= 15.0), firmware (<< 18.0), preferenceloader$' BetterWiFi-RH/control
           grep -q '@available(iOS 15.0, \*)' BetterWiFi-RH/Tweak.xm
 
@@ -333,20 +337,21 @@ jobs:
         run: |
           set -euo pipefail
           cd BetterWiFi-RH
+          umask 022
           make clean package FINALPACKAGE=1 TARGET=iphone:clang:latest:15.0 ARCHS="arm64 arm64e"
           deb="$(find packages -name '*.deb' -type f | head -1)"
           test -n "$deb"
           test "$(dpkg-deb -f "$deb" Package)" = "com.betterwifirh.tweak"
-          test "$(dpkg-deb -f "$deb" Version)" = "0.3.12"
+          test "$(dpkg-deb -f "$deb" Version)" = "0.3.13"
           test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm"
           mkdir -p ../out-rootful
-          cp "$deb" ../out-rootful/BetterWiFi_0.3.12_Rootful_iOS15-17.deb
+          cp "$deb" ../out-rootful/BetterWiFi_0.3.13_Rootful_iOS15-17.deb
           dpkg-deb -f "$deb" Package Version Architecture Depends
           file .theos/obj/debug/BetterWiFiRH.dylib 2>/dev/null || true
 
       - name: Upload rootful deb
         uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-0.3.12-Rootful-iOS15-17
-          path: out-rootful/BetterWiFi_0.3.12_Rootful_iOS15-17.deb
+          name: BetterWiFi-0.3.13-Rootful-iOS15-17
+          path: out-rootful/BetterWiFi_0.3.13_Rootful_iOS15-17.deb
           if-no-files-found: error
