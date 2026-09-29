@@ -25,4 +25,4 @@ info["CFBundleShortVersionString"] = "1.0"
 info["CFBundleVersion"] = "21"
 info_path.write_bytes(plistlib.dumps(info, fmt=plistlib.FMT_XML, sort_keys=False))
 
-print("BetterWiFi RH 1.0 generic Settings icon patch applied")
+print("BetterWiFi RH 1.0 Sileo Category_tweak Settings icon patch applied")

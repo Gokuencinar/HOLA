@@ -23,6 +23,7 @@ on:
       - 'patch_bwrh_048_translation_icon.py'
       - 'patch_bwrh_049_generic_icon.py'
       - 'betterwifi_generic_icon.b64'
+      - 'SILEO_ICON_NOTICE.txt'
       - 'validate_bwrh_arm64e.py'
       - 'credits_avatar.b64'
   workflow_dispatch:
@@ -183,6 +184,7 @@ jobs:
           python3 patch_bwrh_048_translation_icon.py
           python3 patch_bwrh_049_generic_icon.py
           base64 -D -i betterwifi_generic_icon.b64 -o BetterWiFi-RH/prefs/Resources/icon.png
+          cp SILEO_ICON_NOTICE.txt BetterWiFi-RH/prefs/Resources/SILEO_ICON_NOTICE.txt
           cd BetterWiFi-RH
           test "$(grep '^Version:' control)" = "Version: 1.0"
           grep -q '^Package: com.betterwifirh.tweak.roothide$' control
@@ -196,8 +198,9 @@ jobs:
           grep -q 'specifier.titleDictionary = titleDictionary' prefs/BWRHRootListController.m
           grep -q 'icon = "icon.png";' layout/Library/PreferenceLoader/Preferences/BetterWiFiRH.plist
           test -s prefs/Resources/icon.png
-          test "$(sips -g pixelWidth prefs/Resources/icon.png | awk '/pixelWidth/ {print $2}')" = "87"
-          test "$(sips -g pixelHeight prefs/Resources/icon.png | awk '/pixelHeight/ {print $2}')" = "87"
+          test "$(sips -g pixelWidth prefs/Resources/icon.png | awk '/pixelWidth/ {print $2}')" = "29"
+          test "$(sips -g pixelHeight prefs/Resources/icon.png | awk '/pixelHeight/ {print $2}')" = "29"
+          test -s prefs/Resources/SILEO_ICON_NOTICE.txt
           plutil -lint prefs/Resources/Root.plist
           plutil -lint prefs/Resources/Info.plist
           echo "BetterWiFi RH 1.0 translation + smaller generic icon source verified."
