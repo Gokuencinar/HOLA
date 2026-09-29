@@ -48,8 +48,8 @@ for old, new in special_replacements.items():
 controller.write_text(s)
 
 # Use an explicit PreferenceLoader icon instead of relying on a fallback that
-# differs between jailbreak/iOS combinations. The workflow creates icon.png
-# from the CreditsAvatar image already shipped in the preference bundle.
+# differs between jailbreak/iOS combinations. A later build step provides the
+# actual generic Wi-Fi icon.png inside the preference bundle.
 entry_path = root / "layout/Library/PreferenceLoader/Preferences/BetterWiFiRH.plist"
 entry = entry_path.read_text()
 if 'icon = "icon.png";' not in entry:
