@@ -17,6 +17,8 @@ on:
       - 'patch_bwrh_041.py'
       - 'patch_bwrh_042.py'
       - 'patch_bwrh_044_permissions.py'
+      - 'patch_bwrh_045_arm64e_build.py'
+      - 'validate_bwrh_arm64e.py'
       - 'credits_avatar.b64'
   workflow_dispatch:
 
@@ -27,7 +29,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Restore BetterWiFi RH 0.3.13
+      - name: Restore BetterWiFi RH 0.3.14
         shell: bash
         run: |
           set -euo pipefail
@@ -170,8 +172,9 @@ jobs:
           cd ..
           python3 patch_bwrh_042.py
           python3 patch_bwrh_044_permissions.py
+          python3 patch_bwrh_045_arm64e_build.py
           cd BetterWiFi-RH
-          test "$(grep '^Version:' control)" = "Version: 0.3.13"
+          test "$(grep '^Version:' control)" = "Version: 0.3.14"
           grep -q 'constant:8.0' prefs/BWRHRootListController.m
           grep -q 'insideAdvancedFilters' prefs/BWRHRootListController.m
           grep -q 'specifier.name = @"Band filter"' prefs/BWRHRootListController.m
@@ -180,18 +183,18 @@ jobs:
           grep -q 'specifier.name = @"Sort networks"' prefs/BWRHRootListController.m
           plutil -lint prefs/Resources/Root.plist
           plutil -lint prefs/Resources/Info.plist
-          echo "BetterWiFi RH 0.3.13 fixes source verified."
+          echo "BetterWiFi RH 0.3.14 fixes source verified."
 
-      - name: Archive prepared 0.3.13 source
+      - name: Archive prepared 0.3.14 source
         shell: bash
         run: |
-          tar -czf BetterWiFi-RH-0.3.13-source.tar.gz BetterWiFi-RH
+          tar -czf BetterWiFi-RH-0.3.14-source.tar.gz BetterWiFi-RH
 
       - name: Upload prepared source
         uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.13-source
-          path: BetterWiFi-RH-0.3.13-source.tar.gz
+          name: BetterWiFi-RH-0.3.14-source
+          path: BetterWiFi-RH-0.3.14-source.tar.gz
           if-no-files-found: error
 
       - name: Setup RootHide Theos
@@ -213,7 +216,7 @@ jobs:
       - name: Upload deb
         uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.13-deb
+          name: BetterWiFi-RH-0.3.14-deb
           path: BetterWiFi-RH/packages/*.deb
           if-no-files-found: error
 
@@ -223,16 +226,23 @@ jobs:
     needs: build
     runs-on: macos-15
     steps:
+      - name: Checkout build helpers
+        uses: actions/checkout@v4
+
       - name: Download prepared source
         uses: actions/download-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.13-source
+          name: BetterWiFi-RH-0.3.14-source
 
       - name: Extract source and adapt compatibility
         shell: bash
         run: |
           set -euo pipefail
-          tar -xzf BetterWiFi-RH-0.3.13-source.tar.gz
+          tar -xzf BetterWiFi-RH-0.3.14-source.tar.gz
+          find BetterWiFi-RH -name Makefile -type f -print0 | while IFS= read -r -d '' f; do
+            sed -i '' -E '/THEOS_PACKAGE_SCHEME[[:space:]]*[:?+]?=[[:space:]]*roothide/d' "$f"
+            sed -i '' -E '/PACKAGE_ARCH[[:space:]]*[:?+]?=[[:space:]]*iphoneos-arm64e/d' "$f"
+          done
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -241,6 +251,7 @@ jobs:
           control=root/"control"
           s=control.read_text()
           s=re.sub(r'^Depends:.*$', 'Depends: firmware (>= 15.0), firmware (<< 19.0), preferenceloader', s, flags=re.M)
+          s=re.sub(r'^Architecture:.*$', 'Architecture: iphoneos-arm64', s, flags=re.M)
           control.write_text(s)
 
           tweak=root/"Tweak.xm"
@@ -251,8 +262,9 @@ jobs:
               raise SystemExit(f'expected one iOS16 ctor gate, replaced {n}')
           tweak.write_text(s2)
           PY
-          grep -q '^Version: 0.3.13$' BetterWiFi-RH/control
+          grep -q '^Version: 0.3.14$' BetterWiFi-RH/control
           grep -q '^Depends: firmware (>= 15.0), firmware (<< 19.0), preferenceloader$' BetterWiFi-RH/control
+          grep -q '^Architecture: iphoneos-arm64$' BetterWiFi-RH/control
           grep -q '@available(iOS 15.0, \*)' BetterWiFi-RH/Tweak.xm
 
       - name: Setup standard Theos
@@ -272,19 +284,33 @@ jobs:
           make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless TARGET=iphone:clang:latest:15.0 ARCHS="arm64 arm64e"
           deb="$(find packages -name '*.deb' -type f | head -1)"
           test -n "$deb"
-          test "$(dpkg-deb -f "$deb" Package)" = "com.betterwifirh.tweak"
-          test "$(dpkg-deb -f "$deb" Version)" = "0.3.13"
-          test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm64"
+
+          dylib=".theos/_/var/jb/Library/MobileSubstrate/DynamicLibraries/BetterWiFiRH.dylib"
+          prefs=".theos/_/var/jb/Library/PreferenceBundles/BetterWiFiRHPrefs.bundle/BetterWiFiRHPrefs"
+          test -f "$dylib"
+          test -f "$prefs"
+          test "$(stat -f '%Lp' "$dylib")" = "755"
+          test "$(stat -f '%Lp' "$prefs")" = "755"
+          python3 ../validate_bwrh_arm64e.py "$dylib" "$prefs"
+          lipo -archs "$dylib"
+          lipo -archs "$prefs"
+          otool -L "$dylib"
+          otool -L "$prefs"
+          codesign -dvv "$dylib" 2>&1 | head -20 || true
+          codesign -dvv "$prefs" 2>&1 | head -20 || true
+
+          grep -q '^Package: com.betterwifirh.tweak$' control
+          grep -q '^Version: 0.3.14$' control
+          grep -q '^Depends: firmware (>= 15.0), firmware (<< 19.0), preferenceloader$' control
+
           mkdir -p ../out-rootless
-          cp "$deb" ../out-rootless/BetterWiFi_0.3.13_Dopamine_Rootless_iOS15-18.deb
-          dpkg-deb -f "$deb" Package Version Architecture Depends
-          file .theos/obj/debug/BetterWiFiRH.dylib 2>/dev/null || true
+          cp "$deb" ../out-rootless/BetterWiFi_0.3.14_Dopamine_Rootless_iOS15-18.deb
 
       - name: Upload Dopamine rootless deb
         uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-0.3.13-Dopamine-Rootless-iOS15-18
-          path: out-rootless/BetterWiFi_0.3.13_Dopamine_Rootless_iOS15-18.deb
+          name: BetterWiFi-0.3.14-Dopamine-Rootless-iOS15-18
+          path: out-rootless/BetterWiFi_0.3.14_Dopamine_Rootless_iOS15-18.deb
           if-no-files-found: error
 
   build-rootful:
@@ -295,13 +321,17 @@ jobs:
       - name: Download prepared source
         uses: actions/download-artifact@v4
         with:
-          name: BetterWiFi-RH-0.3.13-source
+          name: BetterWiFi-RH-0.3.14-source
 
       - name: Extract source and adapt compatibility
         shell: bash
         run: |
           set -euo pipefail
-          tar -xzf BetterWiFi-RH-0.3.13-source.tar.gz
+          tar -xzf BetterWiFi-RH-0.3.14-source.tar.gz
+          find BetterWiFi-RH -name Makefile -type f -print0 | while IFS= read -r -d '' f; do
+            sed -i '' -E '/THEOS_PACKAGE_SCHEME[[:space:]]*[:?+]?=[[:space:]]*roothide/d' "$f"
+            sed -i '' -E '/PACKAGE_ARCH[[:space:]]*[:?+]?=[[:space:]]*iphoneos-arm64e/d' "$f"
+          done
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -310,6 +340,7 @@ jobs:
           control=root/"control"
           s=control.read_text()
           s=re.sub(r'^Depends:.*$', 'Depends: firmware (>= 15.0), firmware (<< 18.0), preferenceloader', s, flags=re.M)
+          s=re.sub(r'^Architecture:.*$', 'Architecture: iphoneos-arm', s, flags=re.M)
           control.write_text(s)
 
           tweak=root/"Tweak.xm"
@@ -320,8 +351,9 @@ jobs:
               raise SystemExit(f'expected one iOS16 ctor gate, replaced {n}')
           tweak.write_text(s2)
           PY
-          grep -q '^Version: 0.3.13$' BetterWiFi-RH/control
+          grep -q '^Version: 0.3.14$' BetterWiFi-RH/control
           grep -q '^Depends: firmware (>= 15.0), firmware (<< 18.0), preferenceloader$' BetterWiFi-RH/control
+          grep -q '^Architecture: iphoneos-arm$' BetterWiFi-RH/control
           grep -q '@available(iOS 15.0, \*)' BetterWiFi-RH/Tweak.xm
 
       - name: Setup standard Theos
@@ -338,20 +370,19 @@ jobs:
           set -euo pipefail
           cd BetterWiFi-RH
           umask 022
-          make clean package FINALPACKAGE=1 TARGET=iphone:clang:latest:15.0 ARCHS="arm64 arm64e"
+          make clean package FINALPACKAGE=1 TARGET=iphone:clang:latest:15.0 ARCHS="arm64"
           deb="$(find packages -name '*.deb' -type f | head -1)"
           test -n "$deb"
-          test "$(dpkg-deb -f "$deb" Package)" = "com.betterwifirh.tweak"
-          test "$(dpkg-deb -f "$deb" Version)" = "0.3.13"
-          test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm"
+          grep -q '^Package: com.betterwifirh.tweak$' control
+          grep -q '^Version: 0.3.14$' control
+          grep -q '^Depends: firmware (>= 15.0), firmware (<< 18.0), preferenceloader$' control
           mkdir -p ../out-rootful
-          cp "$deb" ../out-rootful/BetterWiFi_0.3.13_Rootful_iOS15-17.deb
-          dpkg-deb -f "$deb" Package Version Architecture Depends
+          cp "$deb" ../out-rootful/BetterWiFi_0.3.14_Rootful_iOS15-17.deb
           file .theos/obj/debug/BetterWiFiRH.dylib 2>/dev/null || true
 
       - name: Upload rootful deb
         uses: actions/upload-artifact@v4
         with:
-          name: BetterWiFi-0.3.13-Rootful-iOS15-17
-          path: out-rootful/BetterWiFi_0.3.13_Rootful_iOS15-17.deb
+          name: BetterWiFi-0.3.14-Rootful-iOS15-17
+          path: out-rootful/BetterWiFi_0.3.14_Rootful_iOS15-17.deb
           if-no-files-found: error
