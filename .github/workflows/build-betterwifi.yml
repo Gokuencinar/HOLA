@@ -198,8 +198,8 @@ jobs:
           grep -q 'specifier.titleDictionary = titleDictionary' prefs/BWRHRootListController.m
           grep -q 'icon = "icon.png";' layout/Library/PreferenceLoader/Preferences/BetterWiFiRH.plist
           test -s prefs/Resources/icon.png
-          test "$(sips -g pixelWidth prefs/Resources/icon.png | awk '/pixelWidth/ {print $2}')" = "29"
-          test "$(sips -g pixelHeight prefs/Resources/icon.png | awk '/pixelHeight/ {print $2}')" = "29"
+          test "$(sips -g pixelWidth prefs/Resources/icon.png | awk '/pixelWidth/ {print $2}')" = "87"
+          test "$(sips -g pixelHeight prefs/Resources/icon.png | awk '/pixelHeight/ {print $2}')" = "87"
           test -s prefs/Resources/SILEO_ICON_NOTICE.txt
           plutil -lint prefs/Resources/Root.plist
           plutil -lint prefs/Resources/Info.plist
