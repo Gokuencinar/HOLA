@@ -14,15 +14,15 @@ for key, value in {
     if not re.search(rf"^{re.escape(key)}: {re.escape(value)}$", text, flags=re.M):
         raise SystemExit(f"expected {key}: {value}")
 
-text = re.sub(r"^Version: 0\.3\.17$", "Version: 0.3.18", text, count=1, flags=re.M)
+text = re.sub(r"^Version: 0\.3\.17$", "Version: 1.0", text, count=1, flags=re.M)
 control.write_text(text)
 
 info_path = root / "prefs/Resources/Info.plist"
 info = plistlib.loads(info_path.read_bytes())
 if info.get("CFBundleShortVersionString") != "0.3.17":
     raise SystemExit(f"expected prefs 0.3.17, got {info.get('CFBundleShortVersionString')!r}")
-info["CFBundleShortVersionString"] = "0.3.18"
+info["CFBundleShortVersionString"] = "1.0"
 info["CFBundleVersion"] = "21"
 info_path.write_bytes(plistlib.dumps(info, fmt=plistlib.FMT_XML, sort_keys=False))
 
-print("BetterWiFi RH 0.3.18 generic Settings icon patch applied")
+print("BetterWiFi RH 1.0 generic Settings icon patch applied")
