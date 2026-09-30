@@ -551,14 +551,14 @@
  "Spanish" = "Español";
 +
 +"Experimental 1.1" = "Experimental 1.1";
-+"Low-risk additions only. The quality score is derived from RSSI. These options use existing scan data or public system APIs and do not add a background daemon." = "Solo a\U00f1adidos de bajo riesgo. La puntuaci\U00f3n de calidad se calcula a partir del RSSI. Estas opciones usan datos de escaneo ya disponibles o APIs p\U00fablicas del sistema y no a\U00f1aden ning\U00fan daemon en segundo plano.";
-+"Quality score (0-100)" = "Puntuaci\U00f3n de calidad (0-100)";
-+"Compact technical mode" = "Modo t\U00e9cnico compacto";
++"Low-risk additions only. The quality score is derived from RSSI. These options use existing scan data or public system APIs and do not add a background daemon." = "Solo añadidos de bajo riesgo. La puntuación de calidad se calcula a partir del RSSI. Estas opciones usan datos de escaneo ya disponibles o APIs públicas del sistema y no añaden ningún daemon en segundo plano.";
++"Quality score (0-100)" = "Puntuación de calidad (0-100)";
++"Compact technical mode" = "Modo técnico compacto";
 +"Show OUI prefix" = "Mostrar prefijo OUI";
-+"IPv6 address" = "Direcci\U00f3n IPv6";
-+"Show last scan age" = "Mostrar antig\U00fcedad del \U00faltimo escaneo";
++"IPv6 address" = "Dirección IPv6";
++"Show last scan age" = "Mostrar antigüedad del último escaneo";
 +"Tap details to copy" = "Tocar detalles para copiar";
-+"Extended signal history" = "Historial de se\U00f1al ampliado";
++"Extended signal history" = "Historial de señal ampliado";
 --- a/prefs/BWRHRootListController.m
 +++ b/prefs/BWRHRootListController.m
 @@ -250,7 +250,7 @@
