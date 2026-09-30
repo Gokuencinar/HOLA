@@ -205,8 +205,8 @@ jobs:
           grep -q 'tapToCopy' Tweak.xm
           grep -q 'showScanAge' Tweak.xm
           grep -q 'showVendorOUI' Tweak.xm
-          grep -q 'Monitoring & tools' prefs/Resources/Root.plist
-          grep -q 'Filters & sorting' prefs/Resources/Root.plist
+          grep -q 'Monitoring &amp; tools' prefs/Resources/Root.plist
+          grep -q 'Filters &amp; sorting' prefs/Resources/Root.plist
           grep -q -- '-95 dBm' prefs/Resources/Root.plist
           ! grep -q 'BetterWiFi classic' prefs/Resources/Root.plist
           ! grep -q 'Advanced Wi-Fi controls for iOS 16 and RootHide' prefs/Resources/Root.plist
