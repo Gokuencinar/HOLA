@@ -395,7 +395,7 @@
  Package: com.betterwifirh.tweak.roothide
  Name: BetterWiFi RH (RootHide)
 -Version: 1.0
-+Version: 1.1~exp1
++Version: 1.1~exp2
  Architecture: iphoneos-arm64e
  Description: Advanced Wi-Fi enhancements for iOS 16 with stable connected-network details, live monitoring, diagnostics, filters, Shuffle integration and RootHide support.
  Maintainer: BetterWiFi RH
@@ -406,7 +406,7 @@
  	<string>BNDL</string>
  	<key>CFBundleShortVersionString</key>
 -	<string>1.0</string>
-+	<string>1.1-exp1</string>
++	<string>1.1-exp2</string>
  	<key>CFBundleVersion</key>
 -	<string>21</string>
 +	<string>22</string>
@@ -433,7 +433,7 @@
 +			<key>key</key>
 +			<string>qualityScore</string>
 +			<key>label</key>
-+			<string>Quality score (0?100)</string>
++			<string>Quality score (0-100)</string>
 +			<key>PostNotification</key>
 +			<string>com.betterwifirh.preferences.changed</string>
 +		</dict>
@@ -551,14 +551,14 @@
  "Spanish" = "Español";
 +
 +"Experimental 1.1" = "Experimental 1.1";
-+"Low-risk additions only. The quality score is derived from RSSI. These options use existing scan data or public system APIs and do not add a background daemon." = "Solo a?adidos de bajo riesgo. La puntuaci?n de calidad se calcula a partir del RSSI. Estas opciones usan datos de escaneo ya disponibles o APIs p?blicas del sistema y no a?aden ning?n daemon en segundo plano.";
-+"Quality score (0?100)" = "Puntuaci?n de calidad (0?100)";
-+"Compact technical mode" = "Modo t?cnico compacto";
++"Low-risk additions only. The quality score is derived from RSSI. These options use existing scan data or public system APIs and do not add a background daemon." = "Solo a\\U00f1adidos de bajo riesgo. La puntuaci\\U00f3n de calidad se calcula a partir del RSSI. Estas opciones usan datos de escaneo ya disponibles o APIs p\\U00fablicas del sistema y no a\\U00f1aden ning\\U00fan daemon en segundo plano.";
++"Quality score (0-100)" = "Puntuaci\\U00f3n de calidad (0-100)";
++"Compact technical mode" = "Modo t\\U00e9cnico compacto";
 +"Show OUI prefix" = "Mostrar prefijo OUI";
-+"IPv6 address" = "Direcci?n IPv6";
-+"Show last scan age" = "Mostrar antig?edad del ?ltimo escaneo";
++"IPv6 address" = "Direcci\\U00f3n IPv6";
++"Show last scan age" = "Mostrar antig\\U00fcedad del \\U00faltimo escaneo";
 +"Tap details to copy" = "Tocar detalles para copiar";
-+"Extended signal history" = "Historial de se?al ampliado";
++"Extended signal history" = "Historial de se\\U00f1al ampliado";
 --- a/prefs/BWRHRootListController.m
 +++ b/prefs/BWRHRootListController.m
 @@ -250,7 +250,7 @@
