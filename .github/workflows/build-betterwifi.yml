@@ -224,7 +224,7 @@ jobs:
           grep -q 'specifier.name = @"Band filter"' prefs/BWRHRootListController.m
           grep -q 'specifier.name = @"Network type"' prefs/BWRHRootListController.m
           grep -q 'specifier.name = @"Minimum signal filter"' prefs/BWRHRootListController.m
-          grep -q 'specifier.name = @"Sort networks"' prefs/BWRHRootListController.m
+          grep -q 'specifier.name = @"Sort networks by:"' prefs/BWRHRootListController.m
           grep -q 'BWRHSetPreferenceTitles' prefs/BWRHRootListController.m
           grep -q 'specifier.titleDictionary = titleDictionary' prefs/BWRHRootListController.m
           grep -q 'icon = "icon.png";' layout/Library/PreferenceLoader/Preferences/BetterWiFiRH.plist
