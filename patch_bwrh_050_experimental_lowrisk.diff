@@ -1,0 +1,572 @@
+--- a/Tweak.xm
++++ b/Tweak.xm
+@@ -5,6 +5,10 @@
+ #import <limits.h>
+ #import <netdb.h>
+ #import <dlfcn.h>
++#import <ifaddrs.h>
++#import <arpa/inet.h>
++#import <math.h>
++#import <string.h>
+ 
+ static NSString * const BWRHPrefsDomain = @"com.betterwifirh.preferences";
+ static const void *BWRHRefreshControlKey = &BWRHRefreshControlKey;
+@@ -12,6 +16,7 @@
+ static const void *BWRHCurrentSubtitleDetailsKey = &BWRHCurrentSubtitleDetailsKey;
+ static const void *BWRHDetailsButtonKey = &BWRHDetailsButtonKey;
+ static NSArray *BWRHLastNetworks = nil;
++static NSDate *BWRHLastSnapshotDate = nil;
+ static NSString * const BWRHPrefsChangedNotification = @"com.betterwifirh.preferences.changed";
+ static __weak UIViewController *BWRHActiveAirportController = nil;
+ 
+@@ -231,8 +236,140 @@
+     return BWRHT(@"Débil", @"Weak");
+ }
+ 
++static id BWRHResolvedCurrentNetwork(id network);
++static long long BWRHNetworkRSSI(id network);
++
++static NSInteger BWRHQualityScore(long long rssi) {
++    if (rssi >= 0 || rssi <= -200) return -1;
++    NSInteger score = (NSInteger)llround((double)(rssi + 100) * 2.0);
++    return MAX(0, MIN(100, score));
++}
++
++static NSString *BWRHQualityScoreDescription(long long rssi) {
++    NSInteger score = BWRHQualityScore(rssi);
++    if (score < 0) return @"";
++    return [NSString stringWithFormat:@"%ld/100 · %@", (long)score, BWRHSignalQuality(rssi)];
++}
++
++static NSString *BWRHOUIForBSSID(NSString *bssid) {
++    if (!bssid.length) return @"";
++    NSArray<NSString *> *parts = [bssid componentsSeparatedByString:@":"];
++    if (parts.count < 3) return @"";
++    return [NSString stringWithFormat:@"%@:%@:%@",
++            [parts[0] uppercaseString], [parts[1] uppercaseString], [parts[2] uppercaseString]];
++}
++
++static NSArray<NSString *> *BWRHLocalAddressesForFamily(int family) {
++    struct ifaddrs *interfaces = NULL;
++    if (getifaddrs(&interfaces) != 0 || !interfaces) return @[];
++
++    NSMutableArray<NSString *> *global = [NSMutableArray array];
++    NSMutableArray<NSString *> *linkLocal = [NSMutableArray array];
++    for (struct ifaddrs *cursor = interfaces; cursor; cursor = cursor->ifa_next) {
++        if (!cursor->ifa_addr || !cursor->ifa_name || strcmp(cursor->ifa_name, "en0") != 0) continue;
++        if (cursor->ifa_addr->sa_family != family) continue;
++
++        char buffer[INET6_ADDRSTRLEN] = {0};
++        const void *address = NULL;
++        if (family == AF_INET) address = &((struct sockaddr_in *)cursor->ifa_addr)->sin_addr;
++        else if (family == AF_INET6) address = &((struct sockaddr_in6 *)cursor->ifa_addr)->sin6_addr;
++        if (!address || !inet_ntop(family, address, buffer, sizeof(buffer))) continue;
++
++        NSString *value = [NSString stringWithUTF8String:buffer];
++        if (!value.length) continue;
++        if (family == AF_INET6 && [value.lowercaseString hasPrefix:@"fe80:"]) [linkLocal addObject:value];
++        else [global addObject:value];
++    }
++    freeifaddrs(interfaces);
++    return global.count ? global : linkLocal;
++}
++
++static NSString *BWRHLocalIPv4Address(void) {
++    return BWRHLocalAddressesForFamily(AF_INET).firstObject ?: @"";
++}
++
++static NSString *BWRHLocalIPv6Description(id config) {
++    id configured = BWRHMsgObject(config, @"ipv6Addresses");
++    if ([configured isKindOfClass:[NSArray class]] && [configured count]) {
++        NSMutableArray<NSString *> *strings = [NSMutableArray array];
++        for (id value in (NSArray *)configured) {
++            NSString *string = BWRHStringValue(value);
++            if (string.length) [strings addObject:string];
++        }
++        if (strings.count) return [strings componentsJoinedByString:@", "];
++    }
++    NSString *single = BWRHStringValue(BWRHMsgObject(config, @"ipv6Address"));
++    if (single.length) return single;
++    return [BWRHLocalAddressesForFamily(AF_INET6) componentsJoinedByString:@", "];
++}
++
++static NSString *BWRHLastScanAgeDescription(void) {
++    NSDate *date = nil;
++    @synchronized (BWRHPrefsDomain) { date = BWRHLastSnapshotDate; }
++    if (!date) return BWRHT(@"Sin datos", @"No data");
++    NSTimeInterval age = MAX(0.0, -date.timeIntervalSinceNow);
++    if (age < 2.0) return BWRHT(@"Ahora", @"Now");
++    if (age < 60.0) return [NSString stringWithFormat:@"%.0f s", age];
++    if (age < 3600.0) return [NSString stringWithFormat:@"%.0f min", floor(age / 60.0)];
++    return [NSString stringWithFormat:@"%.1f h", age / 3600.0];
++}
++
++static NSString *BWRHDiagnosticReport(id network, id config) {
++    network = BWRHResolvedCurrentNetwork(network);
++    NSMutableArray<NSString *> *lines = [NSMutableArray arrayWithObject:@"BetterWiFi RH 1.1 experimental diagnostic"];
++    void (^add)(NSString *, NSString *) = ^(NSString *label, NSString *value) {
++        if (value.length) [lines addObject:[NSString stringWithFormat:@"%@: %@", label, value]];
++    };
++
++    add(@"SSID", BWRHNetworkSSID(network));
++    NSString *bssid = BWRHBSSID(network);
++    add(@"BSSID", bssid);
++    add(@"OUI", BWRHOUIForBSSID(bssid));
++    long long rssi = BWRHNetworkRSSI(network);
++    if (rssi != LLONG_MIN) {
++        add(@"RSSI", [NSString stringWithFormat:@"%lld dBm", rssi]);
++        add(@"Quality", BWRHQualityScoreDescription(rssi));
++    }
++    add(@"Security", BWRHSecurityDescription(network));
++    NSNumber *channel = BWRHChannelNumber(network);
++    if (channel) add(@"Channel", channel.stringValue);
++    add(@"Band", BWRHBandDescription(network));
++    NSNumber *width = BWRHChannelWidth(network);
++    if (width.integerValue > 0) add(@"Channel width", [NSString stringWithFormat:@"%@ MHz", width]);
++
++    NSString *ipv4 = BWRHStringValue(BWRHMsgObject(config, @"ipv4Address"));
++    add(@"IPv4", ipv4.length ? ipv4 : BWRHLocalIPv4Address());
++    add(@"IPv6", BWRHLocalIPv6Description(config));
++    add(@"Router", BWRHStringValue(BWRHMsgObject(config, @"ipv4RouterAddress")));
++    id dns = BWRHMsgObject(config, @"dnsServerAddresses");
++    if ([dns isKindOfClass:[NSArray class]] && [dns count]) add(@"DNS", [(NSArray *)dns componentsJoinedByString:@", "]);
++    add(@"Last scan", BWRHLastScanAgeDescription());
++    [lines addObject:@"Passwords are never included."];
++    return [lines componentsJoinedByString:@"\n"];
++}
++
++static void BWRHShareText(UIViewController *controller, UIBarButtonItem *sender, NSString *text) {
++    if (!controller || !text.length) return;
++    UIActivityViewController *activity = [[UIActivityViewController alloc] initWithActivityItems:@[text] applicationActivities:nil];
++    UIPopoverPresentationController *popover = activity.popoverPresentationController;
++    if (popover && sender) popover.barButtonItem = sender;
++    [controller presentViewController:activity animated:YES completion:nil];
++}
++
+ static NSString *BWRHDetailsForNetwork(id network) {
+     NSMutableArray<NSString *> *parts = [NSMutableArray array];
++
++    if (BWRHBool(@"compactMode", NO)) {
++        long long rssi = BWRHNetworkRSSI(network);
++        if (rssi != LLONG_MIN) [parts addObject:[NSString stringWithFormat:@"%lld dBm", rssi]];
++        NSNumber *channel = BWRHChannelNumber(network);
++        if (channel) [parts addObject:[NSString stringWithFormat:@"Ch %@", channel]];
++        NSString *security = BWRHSecurityDescription(network);
++        if (security.length) [parts addObject:security];
++        NSString *band = BWRHBandDescription(network);
++        if (band.length) [parts addObject:band];
++        return [parts componentsJoinedByString:@" · "];
++    }
+ 
+     if (BWRHBool(@"showRSSI", YES)) {
+         long long rssi = BWRHMsgLongLong(network, @"rssi", LLONG_MIN);
+@@ -327,6 +464,7 @@
+     }
+     @synchronized (BWRHPrefsDomain) {
+         BWRHLastNetworks = [safe copy];
++        BWRHLastSnapshotDate = [NSDate date];
+     }
+ }
+ 
+@@ -571,15 +709,22 @@
+         if (value.length) [items addObject:@{ @"label": label, @"value": value }];
+     };
+ 
++    add(@"SSID", BWRHNetworkSSID(network));
++
+     if (BWRHBool(@"showRSSI", YES)) {
+-        long long rssi = BWRHMsgLongLong(network, @"rssi", LLONG_MIN);
+-        if (rssi != LLONG_MIN && rssi < 0 && rssi > -200) {
+-            add(BWRHT(@"Señal", @"Signal"), [NSString stringWithFormat:@"%lld dBm · %@", rssi, BWRHSignalQuality(rssi)]);
++        long long rssi = BWRHNetworkRSSI(network);
++        if (rssi != LLONG_MIN) {
++            NSString *value = BWRHBool(@"qualityScore", YES)
++                ? [NSString stringWithFormat:@"%lld dBm · %@", rssi, BWRHQualityScoreDescription(rssi)]
++                : [NSString stringWithFormat:@"%lld dBm · %@", rssi, BWRHSignalQuality(rssi)];
++            add(BWRHT(@"Señal", @"Signal"), value);
+         }
+     }
+ 
+     if (BWRHBool(@"showSecurity", YES)) add(BWRHT(@"Seguridad", @"Security"), BWRHSecurityDescription(network));
+-    if (BWRHBool(@"detailsShowBSSID", YES)) add(@"BSSID", BWRHBSSID(network));
++    NSString *bssid = BWRHBSSID(network);
++    if (BWRHBool(@"detailsShowBSSID", YES)) add(@"BSSID", bssid);
++    if (BWRHBool(@"showVendorOUI", YES)) add(@"OUI", BWRHOUIForBSSID(bssid));
+ 
+     if (BWRHBool(@"showChannel", YES)) {
+         NSNumber *channel = BWRHChannelNumber(network);
+@@ -595,7 +740,11 @@
+         }
+     }
+ 
+-    if (BWRHBool(@"detailsShowIPv4", YES)) add(BWRHT(@"Dirección IPv4", @"IPv4 address"), BWRHStringValue(BWRHMsgObject(config, @"ipv4Address")));
++    if (BWRHBool(@"detailsShowIPv4", YES)) {
++        NSString *ipv4 = BWRHStringValue(BWRHMsgObject(config, @"ipv4Address"));
++        add(BWRHT(@"Dirección IPv4", @"IPv4 address"), ipv4.length ? ipv4 : BWRHLocalIPv4Address());
++    }
++    if (BWRHBool(@"detailsShowIPv6", YES)) add(BWRHT(@"Dirección IPv6", @"IPv6 address"), BWRHLocalIPv6Description(config));
+     if (BWRHBool(@"detailsShowRouter", YES)) add(BWRHT(@"Router", @"Router"), BWRHStringValue(BWRHMsgObject(config, @"ipv4RouterAddress")));
+ 
+     if (BWRHBool(@"detailsShowDNS", YES)) {
+@@ -608,6 +757,8 @@
+     if (BWRHBool(@"detailsShowPrivateAddress", NO)) {
+         add(BWRHT(@"Dirección Wi‑Fi privada", @"Private Wi-Fi address"), BWRHStringValue(BWRHMsgObject(context, @"randomMACAddress")));
+     }
++
++    if (BWRHBool(@"showScanAge", YES)) add(BWRHT(@"Último escaneo", @"Last scan"), BWRHLastScanAgeDescription());
+ 
+     if (BWRHBool(@"showTools", YES)) {
+         [items addObject:@{ @"label": BWRHT(@"Monitor de señal", @"Signal monitor"), @"value": BWRHT(@"Gráfica en vivo", @"Live graph"), @"action": @"signal" }];
+@@ -1166,9 +1317,10 @@
+     self.lastSampleSource = source ?: @"—";
+     if (rssi != LLONG_MIN) {
+         [self.samples addObject:@(rssi)];
+-        while (self.samples.count > 60) [self.samples removeObjectAtIndex:0];
++        NSUInteger maxSamples = BWRHBool(@"extendedSignalHistory", YES) ? 180 : 60;
++        while (self.samples.count > maxSamples) [self.samples removeObjectAtIndex:0];
+         self.valueLabel.text = [NSString stringWithFormat:@"%lld dBm", rssi];
+-        self.qualityLabel.text = BWRHSignalQuality(rssi);
++        self.qualityLabel.text = BWRHBool(@"qualityScore", YES) ? BWRHQualityScoreDescription(rssi) : BWRHSignalQuality(rssi);
+         self.graphView.samples = [self.samples copy];
+     } else {
+         self.valueLabel.text = @"— dBm";
+@@ -1187,6 +1339,17 @@
+     if (band.length) [meta addObject:band];
+     if (channel) [meta addObject:[NSString stringWithFormat:@"%@ %@", BWRHT(@"Canal", @"Channel"), channel]];
+     if (bssid.length) [meta addObject:bssid];
++    if (self.samples.count) {
++        long long minimum = LLONG_MAX, maximum = LLONG_MIN, total = 0;
++        for (NSNumber *sample in self.samples) {
++            long long value = sample.longLongValue;
++            minimum = MIN(minimum, value);
++            maximum = MAX(maximum, value);
++            total += value;
++        }
++        long long average = (long long)llround((double)total / (double)self.samples.count);
++        [meta addObject:[NSString stringWithFormat:BWRHT(@"mín %lld · med %lld · máx %lld dBm", @"min %lld · avg %lld · max %lld dBm"), minimum, average, maximum]];
++    }
+     self.metaLabel.text = [meta componentsJoinedByString:@" · "];
+ }
+ 
+@@ -1487,9 +1650,15 @@
+ 
+ - (void)viewDidLoad {
+     [super viewDidLoad];
+-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:BWRHT(@"Repetir", @"Run again") style:UIBarButtonItemStylePlain target:self action:@selector(runDiagnostics)];
++    UIBarButtonItem *run = [[UIBarButtonItem alloc] initWithTitle:BWRHT(@"Repetir", @"Run again") style:UIBarButtonItemStylePlain target:self action:@selector(runDiagnostics)];
++    UIBarButtonItem *share = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAction target:self action:@selector(bwrh_shareDiagnostics:)];
++    self.navigationItem.rightBarButtonItems = @[run, share];
+     [self resetRows];
+     [self runDiagnostics];
++}
++
++- (void)bwrh_shareDiagnostics:(UIBarButtonItem *)sender {
++    BWRHShareText(self, sender, BWRHDiagnosticReport(self.network, self.config));
+ }
+ 
+ - (void)resetRows {
+@@ -1497,14 +1666,19 @@
+     NSString *signal = (rssi != LLONG_MIN && rssi < 0 && rssi > -200)
+         ? [NSString stringWithFormat:@"%lld dBm · %@", rssi, BWRHSignalQuality(rssi)]
+         : BWRHT(@"No disponible", @"Unavailable");
+-    NSString *ip = BWRHStringValue(BWRHMsgObject(self.config, @"ipv4Address")) ?: BWRHT(@"Sin IPv4", @"No IPv4");
++    NSString *ip = BWRHStringValue(BWRHMsgObject(self.config, @"ipv4Address"));
++    if (!ip.length) ip = BWRHLocalIPv4Address();
++    if (!ip.length) ip = BWRHT(@"Sin IPv4", @"No IPv4");
++    NSString *ipv6 = BWRHLocalIPv6Description(self.config);
++    if (!ipv6.length) ipv6 = BWRHT(@"Sin IPv6", @"No IPv6");
+     NSString *router = BWRHStringValue(BWRHMsgObject(self.config, @"ipv4RouterAddress")) ?: BWRHT(@"No disponible", @"Unavailable");
+     id dns = BWRHMsgObject(self.config, @"dnsServerAddresses");
+     NSString *dnsConfigured = ([dns isKindOfClass:[NSArray class]] && [dns count]) ? [(NSArray *)dns componentsJoinedByString:@", "] : BWRHT(@"No configurado", @"Not configured");
+ 
+     self.rows = [@[
+         [@{ @"label": BWRHT(@"Señal", @"Signal"), @"value": signal } mutableCopy],
+-        [@{ @"label": BWRHT(@"Dirección IP", @"IP address"), @"value": ip } mutableCopy],
++        [@{ @"label": @"IPv4", @"value": ip } mutableCopy],
++        [@{ @"label": @"IPv6", @"value": ipv6 } mutableCopy],
+         [@{ @"label": BWRHT(@"Router", @"Router"), @"value": router } mutableCopy],
+         [@{ @"label": @"DNS", @"value": dnsConfigured } mutableCopy],
+         [@{ @"label": BWRHT(@"Resolución DNS", @"DNS resolution"), @"value": BWRHT(@"Pendiente…", @"Pending…") } mutableCopy],
+@@ -1525,7 +1699,7 @@
+ - (void)runDiagnostics {
+     if (self.running) return;
+     self.running = YES;
+-    self.navigationItem.rightBarButtonItem.enabled = NO;
++    self.navigationItem.rightBarButtonItems.firstObject.enabled = NO;
+     [self resetRows];
+ 
+     __weak typeof(self) weakSelf = self;
+@@ -1543,7 +1717,7 @@
+             ? [NSString stringWithFormat:BWRHT(@"Correcto · %.0f ms", @"OK · %.0f ms"), ms]
+             : [NSString stringWithFormat:BWRHT(@"Error (%d)", @"Error (%d)"), rc];
+         dispatch_async(dispatch_get_main_queue(), ^{
+-            [weakSelf updateRow:4 value:value];
++            [weakSelf updateRow:5 value:value];
+         });
+     });
+ 
+@@ -1571,9 +1745,9 @@
+             }
+         }
+         dispatch_async(dispatch_get_main_queue(), ^{
+-            [weakSelf updateRow:5 value:value];
++            [weakSelf updateRow:6 value:value];
+             weakSelf.running = NO;
+-            weakSelf.navigationItem.rightBarButtonItem.enabled = YES;
++            weakSelf.navigationItem.rightBarButtonItems.firstObject.enabled = YES;
+         });
+         [session finishTasksAndInvalidate];
+     }];
+@@ -1596,8 +1770,21 @@
+     cell.detailTextLabel.text = row[@"value"];
+     cell.detailTextLabel.adjustsFontSizeToFitWidth = YES;
+     cell.detailTextLabel.minimumScaleFactor = 0.6;
+-    cell.selectionStyle = UITableViewCellSelectionStyleNone;
++    cell.selectionStyle = BWRHBool(@"tapToCopy", YES) ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
+     return cell;
++}
++
++- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
++    [tableView deselectRowAtIndexPath:indexPath animated:YES];
++    if (!BWRHBool(@"tapToCopy", YES)) return;
++    NSString *value = self.rows[indexPath.row][@"value"];
++    if (!value.length) return;
++    UIPasteboard.generalPasteboard.string = value;
++    UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
++    cell.accessoryType = UITableViewCellAccessoryCheckmark;
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
++        if ([tableView cellForRowAtIndexPath:indexPath] == cell) cell.accessoryType = UITableViewCellAccessoryNone;
++    });
+ }
+ 
+ @end
+@@ -1621,6 +1808,17 @@
+         self.title = @"BetterWiFi RH";
+     }
+     return self;
++}
++
++- (void)viewDidLoad {
++    [super viewDidLoad];
++    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAction target:self action:@selector(bwrh_shareDetails:)];
++}
++
++- (void)bwrh_shareDetails:(UIBarButtonItem *)sender {
++    id network = BWRHCurrentDetailsNetwork(self.sourceController);
++    id config = BWRHMsgObject(self.sourceController, @"config");
++    BWRHShareText(self, sender, BWRHDiagnosticReport(network, config));
+ }
+ 
+ - (void)viewWillAppear:(BOOL)animated {
+@@ -1654,7 +1852,7 @@
+     cell.detailTextLabel.adjustsFontSizeToFitWidth = YES;
+     cell.detailTextLabel.minimumScaleFactor = 0.6;
+     cell.accessoryType = actionable ? UITableViewCellAccessoryDisclosureIndicator : UITableViewCellAccessoryNone;
+-    cell.selectionStyle = actionable ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
++    cell.selectionStyle = (actionable || BWRHBool(@"tapToCopy", YES)) ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
+     return cell;
+ }
+ 
+@@ -1662,7 +1860,20 @@
+     NSDictionary *item = self.items[indexPath.row];
+     NSString *action = item[@"action"];
+     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+-    if (!action.length) return;
++    if (!action.length) {
++        if (BWRHBool(@"tapToCopy", YES)) {
++            NSString *value = item[@"value"];
++            if (value.length) {
++                UIPasteboard.generalPasteboard.string = value;
++                UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
++                cell.accessoryType = UITableViewCellAccessoryCheckmark;
++                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
++                    if ([tableView cellForRowAtIndexPath:indexPath] == cell) cell.accessoryType = UITableViewCellAccessoryNone;
++                });
++            }
++        }
++        return;
++    }
+ 
+     id network = BWRHResolvedCurrentNetwork(BWRHCurrentDetailsNetwork(self.sourceController));
+     UIViewController *destination = nil;
+--- a/control
++++ b/control
+@@ -1,6 +1,6 @@
+ Package: com.betterwifirh.tweak.roothide
+ Name: BetterWiFi RH (RootHide)
+-Version: 1.0
++Version: 1.1~exp1
+ Architecture: iphoneos-arm64e
+ Description: Advanced Wi-Fi enhancements for iOS 16 with stable connected-network details, live monitoring, diagnostics, filters, Shuffle integration and RootHide support.
+ Maintainer: BetterWiFi RH
+--- a/prefs/Resources/Info.plist
++++ b/prefs/Resources/Info.plist
+@@ -17,9 +17,9 @@
+ 	<key>CFBundlePackageType</key>
+ 	<string>BNDL</string>
+ 	<key>CFBundleShortVersionString</key>
+-	<string>1.0</string>
++	<string>1.1-exp1</string>
+ 	<key>CFBundleVersion</key>
+-	<string>21</string>
++	<string>22</string>
+ 	<key>NSPrincipalClass</key>
+ 	<string>BWRHRootListController</string>
+ </dict>
+--- a/prefs/Resources/Root.plist
++++ b/prefs/Resources/Root.plist
+@@ -92,6 +92,112 @@
+ 			<key>cell</key>
+ 			<string>PSGroupCell</string>
+ 			<key>label</key>
++			<string>Experimental 1.1</string>
++			<key>footerText</key>
++			<string>Low-risk additions only. The quality score is derived from RSSI. These options use existing scan data or public system APIs and do not add a background daemon.</string>
++		</dict>
++		<dict>
++			<key>cell</key>
++			<string>PSSwitchCell</string>
++			<key>default</key>
++			<true/>
++			<key>defaults</key>
++			<string>com.betterwifirh.preferences</string>
++			<key>key</key>
++			<string>qualityScore</string>
++			<key>label</key>
++			<string>Quality score (0?100)</string>
++			<key>PostNotification</key>
++			<string>com.betterwifirh.preferences.changed</string>
++		</dict>
++		<dict>
++			<key>cell</key>
++			<string>PSSwitchCell</string>
++			<key>default</key>
++			<false/>
++			<key>defaults</key>
++			<string>com.betterwifirh.preferences</string>
++			<key>key</key>
++			<string>compactMode</string>
++			<key>label</key>
++			<string>Compact technical mode</string>
++			<key>PostNotification</key>
++			<string>com.betterwifirh.preferences.changed</string>
++		</dict>
++		<dict>
++			<key>cell</key>
++			<string>PSSwitchCell</string>
++			<key>default</key>
++			<true/>
++			<key>defaults</key>
++			<string>com.betterwifirh.preferences</string>
++			<key>key</key>
++			<string>showVendorOUI</string>
++			<key>label</key>
++			<string>Show OUI prefix</string>
++			<key>PostNotification</key>
++			<string>com.betterwifirh.preferences.changed</string>
++		</dict>
++		<dict>
++			<key>cell</key>
++			<string>PSSwitchCell</string>
++			<key>default</key>
++			<true/>
++			<key>defaults</key>
++			<string>com.betterwifirh.preferences</string>
++			<key>key</key>
++			<string>detailsShowIPv6</string>
++			<key>label</key>
++			<string>IPv6 address</string>
++			<key>PostNotification</key>
++			<string>com.betterwifirh.preferences.changed</string>
++		</dict>
++		<dict>
++			<key>cell</key>
++			<string>PSSwitchCell</string>
++			<key>default</key>
++			<true/>
++			<key>defaults</key>
++			<string>com.betterwifirh.preferences</string>
++			<key>key</key>
++			<string>showScanAge</string>
++			<key>label</key>
++			<string>Show last scan age</string>
++			<key>PostNotification</key>
++			<string>com.betterwifirh.preferences.changed</string>
++		</dict>
++		<dict>
++			<key>cell</key>
++			<string>PSSwitchCell</string>
++			<key>default</key>
++			<true/>
++			<key>defaults</key>
++			<string>com.betterwifirh.preferences</string>
++			<key>key</key>
++			<string>tapToCopy</string>
++			<key>label</key>
++			<string>Tap details to copy</string>
++			<key>PostNotification</key>
++			<string>com.betterwifirh.preferences.changed</string>
++		</dict>
++		<dict>
++			<key>cell</key>
++			<string>PSSwitchCell</string>
++			<key>default</key>
++			<true/>
++			<key>defaults</key>
++			<string>com.betterwifirh.preferences</string>
++			<key>key</key>
++			<string>extendedSignalHistory</string>
++			<key>label</key>
++			<string>Extended signal history</string>
++			<key>PostNotification</key>
++			<string>com.betterwifirh.preferences.changed</string>
++		</dict>
++		<dict>
++			<key>cell</key>
++			<string>PSGroupCell</string>
++			<key>label</key>
+ 			<string>Connected network</string>
+ 			<key>footerText</key>
+ 			<string>Shows additional data in the current network row and inside the ⓘ information page.</string>
+@@ -310,12 +416,14 @@
+ 				<string>All</string>
+ 				<string>2.4</string>
+ 				<string>5</string>
++				<string>6</string>
+ 			</array>
+ 			<key>validValues</key>
+ 			<array>
+ 				<integer>0</integer>
+ 				<integer>24</integer>
+ 				<integer>5</integer>
++				<integer>6</integer>
+ 			</array>
+ 			<key>PostNotification</key>
+ 			<string>com.betterwifirh.preferences.changed</string>
+--- a/prefs/Resources/es.lproj/Root.strings
++++ b/prefs/Resources/es.lproj/Root.strings
+@@ -44,3 +44,13 @@
+ "Signal strength (dBm)" = "Intensidad de señal (dBm)";
+ "Sort networks" = "Ordenar redes";
+ "Spanish" = "Español";
++
++"Experimental 1.1" = "Experimental 1.1";
++"Low-risk additions only. The quality score is derived from RSSI. These options use existing scan data or public system APIs and do not add a background daemon." = "Solo a?adidos de bajo riesgo. La puntuaci?n de calidad se calcula a partir del RSSI. Estas opciones usan datos de escaneo ya disponibles o APIs p?blicas del sistema y no a?aden ning?n daemon en segundo plano.";
++"Quality score (0?100)" = "Puntuaci?n de calidad (0?100)";
++"Compact technical mode" = "Modo t?cnico compacto";
++"Show OUI prefix" = "Mostrar prefijo OUI";
++"IPv6 address" = "Direcci?n IPv6";
++"Show last scan age" = "Mostrar antig?edad del ?ltimo escaneo";
++"Tap details to copy" = "Tocar detalles para copiar";
++"Extended signal history" = "Historial de se?al ampliado";
+--- a/prefs/BWRHRootListController.m
++++ b/prefs/BWRHRootListController.m
+@@ -250,7 +250,7 @@
+             if (insideAdvancedFilters) {
+                 if ([key isEqualToString:@"bandFilter"]) {
+                     specifier.name = @"Band filter";
+-                    BWRHSetPreferenceTitles(specifier, @[@"All", @"2.4", @"5"]);
++                    BWRHSetPreferenceTitles(specifier, @[@"All", @"2.4", @"5", @"6"]);
+                 } else if ([key isEqualToString:@"networkTypeFilter"]) {
+                     specifier.name = @"Network type";
+                     BWRHSetPreferenceTitles(specifier, @[@"All", @"Known", @"New"]);
