@@ -42,9 +42,9 @@ static NSString *BWRHCanonicalBSSID(NSString *bssid) {
     return [[bssid stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] uppercaseString];
 }
 
-static id BWRHTopologyCurrentNetwork(id currentNetwork) {
+static id BWRHTopologyCurrentNetwork(id airportController, id currentNetwork) {
     if (!currentNetwork) return nil;
-    NSArray *snapshot = BWRHLatestScanNetworks(BWRHActiveAirportController);
+    NSArray *snapshot = BWRHLatestScanNetworks(airportController);
     NSString *bssid = BWRHCanonicalBSSID(BWRHBSSID(currentNetwork));
     unsigned long long uid = BWRHMsgUnsignedLongLong(currentNetwork, @"uniqueIdentifier", 0);
 
@@ -60,7 +60,7 @@ static id BWRHTopologyCurrentNetwork(id currentNetwork) {
 }
 
 static NSArray *BWRHSameSSIDAccessPoints(id airportController, id currentNetwork) {
-    currentNetwork = BWRHTopologyCurrentNetwork(currentNetwork);
+    currentNetwork = BWRHTopologyCurrentNetwork(airportController, currentNetwork);
     NSString *ssid = BWRHNetworkSSID(currentNetwork);
     if (!ssid.length) return @[];
 
@@ -69,7 +69,8 @@ static NSArray *BWRHSameSSIDAccessPoints(id airportController, id currentNetwork
 
     NSMutableDictionary<NSString *, id> *deduped = [NSMutableDictionary dictionary];
     for (id candidate in candidates) {
-        if (![[BWRHNetworkSSID(candidate) ?: @""] isEqualToString:ssid]) continue;
+        NSString *candidateSSID = BWRHNetworkSSID(candidate) ?: @"";
+        if (![candidateSSID isEqualToString:ssid]) continue;
         NSString *bssid = BWRHCanonicalBSSID(BWRHBSSID(candidate));
         NSString *key = bssid.length ? bssid : @"__unknown_bssid__";
         id previous = deduped[key];
@@ -179,7 +180,7 @@ static NSInteger BWRHVisibleNetworksOnCurrentChannel(id airportController, id cu
 }
 
 - (void)rebuildAnalysis {
-    id current = BWRHTopologyCurrentNetwork(self.currentNetwork);
+    id current = BWRHTopologyCurrentNetwork(self.airportController, self.currentNetwork);
     NSArray *aps = BWRHSameSSIDAccessPoints(self.airportController, current);
     self.accessPoints = aps ?: @[];
 
@@ -307,7 +308,7 @@ static NSInteger BWRHVisibleNetworksOnCurrentChannel(id airportController, id cu
     cell.detailTextLabel.adjustsFontSizeToFitWidth = YES;
     cell.detailTextLabel.minimumScaleFactor = 0.55;
 
-    NSString *currentBSSID = BWRHCanonicalBSSID(BWRHBSSID(BWRHTopologyCurrentNetwork(self.currentNetwork)));
+    NSString *currentBSSID = BWRHCanonicalBSSID(BWRHBSSID(BWRHTopologyCurrentNetwork(self.airportController, self.currentNetwork)));
     cell.accessoryType = (currentBSSID.length && [bssid isEqualToString:currentBSSID]) ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
     cell.selectionStyle = bssid.length && BWRHBool(@"tapToCopy", YES) ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
     return cell;
